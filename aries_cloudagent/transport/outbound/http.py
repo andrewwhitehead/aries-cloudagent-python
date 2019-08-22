@@ -6,7 +6,7 @@ from aiohttp import ClientSession
 
 from ...messaging.outbound_message import OutboundMessage
 
-from .base import BaseOutboundTransport
+from .base import BaseOutboundTransport, OutboundDeliveryError
 
 
 class HttpTransport(BaseOutboundTransport):
@@ -45,4 +45,4 @@ class HttpTransport(BaseOutboundTransport):
             message.endpoint, data=message.payload, headers=headers
         ) as response:
             if response.status < 200 or response.status > 299:
-                raise Exception("Unexpected response status")
+                raise OutboundDeliveryError("Unexpected response status")

@@ -3,8 +3,9 @@
 from abc import ABC, abstractmethod
 import asyncio
 
-from ...error import BaseError
 from ...messaging.outbound_message import OutboundMessage
+
+from ..error import TransportError
 
 
 class BaseOutboundTransport(ABC):
@@ -41,5 +42,9 @@ class BaseOutboundTransport(ABC):
         """
 
 
-class OutboundTransportRegistrationError(BaseError):
+class OutboundDeliveryError(TransportError):
+    """Outbound message delivery error."""
+
+
+class OutboundTransportRegistrationError(TransportError):
     """Outbound transport registration error."""

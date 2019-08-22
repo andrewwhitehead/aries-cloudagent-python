@@ -3,18 +3,18 @@ import asyncio
 from asynctest import TestCase as AsyncTestCase
 from asynctest import mock as async_mock
 
-from ..task_processor import TaskProcessor, PendingTask
+from ..task_processor import TaskProcessor, PendingTask, Repeat
 
 
 class RetryTask:
-    def __init__(self, retries: int, result):
+    def __init__(self, max_retries: int, result):
         self.attempts = 0
-        self.retries = retries
+        self.max_retries = max_retries
         self.result = result
 
     async def run(self, pending: PendingTask):
         self.attempts += 1
-        if self.attempts <= self.retries:
+        if self.attempts <= self.max_retries:
             raise Exception()
         return self.result
 
@@ -47,14 +47,27 @@ class TestTaskProcessor(AsyncTestCase):
             result = await asyncio.wait_for(future, timeout=5.0)
         await asyncio.wait_for(processor.wait_done(), timeout=5.0)
 
-    async def test_retry(self):
+    async def test_processor_retry(self):
         test_value = "test_value"
         task = RetryTask(1, test_value)
         processor = TaskProcessor()
         future = await processor.run_retry(
-            lambda pending: task.run(pending), retries=5, retry_delay=0.01
+            lambda pending: task.run(pending), limit=5, interval=0.01
         )
         result = await asyncio.wait_for(future, timeout=5.0)
         assert result == test_value
         await asyncio.wait_for(processor.wait_done(), timeout=5.0)
         assert task.attempts == 2
+
+    async def test_repeat(self):
+        count = 0
+        async for task in Repeat.each(limit=3):
+            assert task.index == count
+            assert task.limit == 3
+            count += 1
+        assert count == 3
+
+        with self.assertRaises(Repeat.TimeoutError):
+            async for task in Repeat.each():
+                async with task.timeout():
+                    await asyncio.sleep(5.0)

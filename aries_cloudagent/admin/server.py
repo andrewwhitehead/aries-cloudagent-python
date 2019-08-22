@@ -76,12 +76,12 @@ class WebhookTarget:
     """Class for managing webhook target information."""
 
     def __init__(
-        self, endpoint: str, topic_filter: Sequence[str] = None, retries: int = None
+        self, endpoint: str, topic_filter: Sequence[str] = None, max_retries: int = None
     ):
         """Initialize the webhook target."""
         self.endpoint = endpoint
         self._topic_filter = None
-        self.retries = retries
+        self.max_retries = max_retries
         # call setter
         self.topic_filter = topic_filter
 
@@ -362,11 +362,14 @@ class AdminServer(BaseAdminServer):
         return ws
 
     def add_webhook_target(
-        self, target_url: str, topic_filter: Sequence[str] = None, retries: int = None
+        self,
+        target_url: str,
+        topic_filter: Sequence[str] = None,
+        max_retries: int = None,
     ):
         """Add a webhook target."""
         self.webhook_targets[target_url] = WebhookTarget(
-            target_url, topic_filter, retries
+            target_url, topic_filter, max_retries
         )
 
     def remove_webhook_target(self, target_url: str):
@@ -395,17 +398,18 @@ class AdminServer(BaseAdminServer):
                         # filter connections activity by default (only sent to sockets)
                         continue
                     if not target.topic_filter or topic in target.topic_filter:
-                        retries = (
+                        max_retries = (
                             self.webhook_retries
-                            if target.retries is None
-                            else target.retries
+                            if target.max_retries is None
+                            else target.max_retries
                         )
                         await self.webhook_processor.run_retry(
                             lambda pending: self._perform_send_webhook(
-                                target.endpoint, topic, payload, pending.attempts + 1
+                                target.endpoint, topic, payload, pending.index + 1
                             ),
                             ident=(target.endpoint, topic),
-                            retries=retries,
+                            limit=max_retries,
+                            interval=5.0,
                         )
             self.webhook_queue.task_done()
 

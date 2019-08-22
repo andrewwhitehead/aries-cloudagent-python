@@ -3,7 +3,7 @@
 from abc import ABC, abstractmethod
 from collections import namedtuple
 
-from ...error import BaseError
+from ..error import TransportError
 
 
 class BaseInboundTransport(ABC):
@@ -18,11 +18,11 @@ class BaseInboundTransport(ABC):
         """Stop listening for on this transport."""
 
 
-class InboundTransportRegistrationError(BaseError):
+class InboundTransportRegistrationError(TransportError):
     """Error in loading an inbound transport."""
 
 
-class InboundTransportSetupError(BaseError):
+class InboundTransportSetupError(TransportError):
     """Setup error for an inbound transport."""
 
 

@@ -6,20 +6,19 @@ import logging
 from typing import Type
 from urllib.parse import urlparse
 
-from ...error import BaseError
 from ...classloader import ClassLoader, ModuleLoadError, ClassNotFoundError
 from ...messaging.outbound_message import OutboundMessage
 from ...task_processor import TaskProcessor
 
-from .base import BaseOutboundTransport, OutboundTransportRegistrationError
+from .base import (
+    BaseOutboundTransport,
+    OutboundDeliveryError,
+    OutboundTransportRegistrationError,
+)
 from .queue.base import BaseOutboundMessageQueue
 
 
 MODULE_BASE_PATH = "aries_cloudagent.transport.outbound"
-
-
-class OutboundDeliveryError(BaseError):
-    """Base exception when a message cannot be delivered via an outbound transport."""
 
 
 class OutboundTransportManager:
@@ -124,32 +123,42 @@ class OutboundTransportManager:
         if wait:
             await self.queue.join()
         if self.polling_task:
-            if wait:
-                await self.polling_task
-            elif not self.polling_task.done:
-                self.polling_task.cancel()
+            if not self.polling_task.done():
+                if wait:
+                    await self.polling_task
+                else:
+                    self.polling_task.cancel()
             self.polling_task = None
         for transport in self.running_transports.values():
             await transport.stop()
         if self.startup_tasks:
             for task in self.startup_tasks:
-                if wait:
-                    await task
-                elif not task.done():
-                    task.cancel()
+                if not task.done():
+                    if wait:
+                        await task
+                    else:
+                        task.cancel()
             self.startup_tasks = []
         self.running_transports = {}
 
     async def poll(self):
         """Send messages from the queue to the transports."""
         self.processor = TaskProcessor(max_pending=10)
-        async for message in self.queue:
-            await self.processor.run_retry(
-                lambda pending: self.dispatch_message(message, pending.attempts + 1),
-                retries=5,
-                retry_delay=10.0,
-            )
-            self.queue.task_done()
+
+        try:
+            async for message in self.queue:
+                try:
+                    await self.processor.run_retry(
+                        lambda pending: self.dispatch_message(
+                            message, pending.index + 1
+                        ),
+                        limit=5,
+                        interval=10.0,
+                    )
+                finally:
+                    self.queue.task_done()
+        except Exception:
+            self.logger.exception("Exception when processing outbound message queue:")
 
         await self.processor.wait_done()
 

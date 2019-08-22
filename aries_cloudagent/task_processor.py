@@ -5,6 +5,8 @@ import logging
 import time
 from typing import Awaitable, Callable
 
+import async_timeout
+
 LOGGER = logging.getLogger(__name__)
 
 
@@ -14,25 +16,79 @@ async def delay_task(delay: float, task: Awaitable):
     return await task
 
 
-class PendingTask:
-    """Class for tracking pending tasks."""
-
+class Attempt:
     def __init__(
         self,
-        ident,
-        fn: Callable[["PendingTask"], Awaitable],
-        retries: int = None,
-        retry_delay: float = None,
+        index: int = 0,
+        limit: int = None,
+        interval: float = 0.0,
+        backoff: float = 0.0,
+        start: float = None,
+        ident: str = None,
     ):
-        """Initialize the pending task instance."""
-        self.attempts = 0
+        """Initialize an attempt instance."""
         self.ident = ident
+        self.index = index
+        self.limit = limit
+        self.interval = interval
+        self.backoff = backoff
+        self.start = start or time.perf_counter()
+        self.elapsed = time.perf_counter() - start if start else 0
+
+    @property
+    def backoff_interval(self) -> float:
+        """Calculate the time before the next attempt."""
+        if self.index:
+            return pow(self.interval, 1 + (self.backoff * (self.index - 1)))
+        return 0.0
+
+    @property
+    def final(self) -> bool:
+        """Check if this is the last instance in the sequence."""
+        return bool(self.limit and self.index >= self.limit - 1)
+
+    def next(self):
+        """Update the attempt index and elapsed time."""
+        self.index += 1
+        self.elapsed = time.perf_counter() - self.start
+
+    def timeout(self, interval: float = 0):
+        """Create a context manager for timing out an attempt."""
+        return async_timeout.timeout(self.interval if interval == 0 else interval)
+
+
+class Repeat:
+    """Class for repeating a task within an async context."""
+
+    # standard alias for callers to use
+    TimeoutError = asyncio.TimeoutError
+
+    @classmethod
+    async def each(cls, limit: int = 0, interval: float = 0.0, backoff: float = 0.0):
+        """Async generator for multiple repeat instances."""
+        start = time.perf_counter()
+        attempt = Attempt(
+            index=0, limit=limit, interval=interval, backoff=backoff, start=start
+        )
+        while True:
+            yield attempt
+            if attempt.final:
+                break
+            attempt.next()
+            wait = attempt.backoff_interval
+            if wait:
+                await asyncio.sleep(wait)
+
+
+class PendingTask(Attempt):
+    """Class for tracking pending tasks."""
+
+    def __init__(self, ident, fn: Callable[["PendingTask"], Awaitable], **kwargs):
+        """Initialize the pending task instance."""
+        super(PendingTask, self).__init__(ident=ident, **kwargs)
         self.fn = fn
         self.future = asyncio.get_event_loop().create_future()
-        self.retries = retries
-        self.retry_delay = retry_delay
         self.running: asyncio.Future = None
-        self.start = time.perf_counter()
 
     def done(self):
         """Check if the task is done."""
@@ -92,9 +148,9 @@ class TaskProcessor:
         if not task.done():
             awaitable = task.fn(task)
             if awaitable:
-                if task.attempts and task.retry_delay:
-                    awaitable = delay_task(task.retry_delay, awaitable)
-                task.attempts += 1
+                wait = task.backoff_interval
+                if wait:
+                    awaitable = delay_task(wait, awaitable)
                 task.running = asyncio.ensure_future(awaitable)
                 task.running.add_done_callback(
                     lambda fut: asyncio.ensure_future(self._check_task(task))
@@ -113,7 +169,8 @@ class TaskProcessor:
                 LOGGER.debug(
                     "Task raised exception: (%s) %s", task.ident or task, exception
                 )
-                if task.retries and task.attempts < task.retries:
+                if not task.final:
+                    task.next()
                     asyncio.get_event_loop().call_soon(self._enqueue_task, task)
                 else:
                     LOGGER.warning("Task failed: %s", task.ident or task)
@@ -138,14 +195,15 @@ class TaskProcessor:
         fn: Callable[[PendingTask], Awaitable],
         *,
         ident=None,
-        retries: int = 5,
-        retry_delay: float = 10.0,
+        limit: int = 5,
+        interval: float = 10.0,
+        backoff: float = 0.0,
         when_ready: bool = True,
     ) -> PendingTask:
         """Process a task and track the result."""
         if when_ready:
             await self.wait_ready()
-        task = PendingTask(ident, fn, retries=retries, retry_delay=retry_delay)
+        task = PendingTask(ident, fn, limit=limit, interval=interval, backoff=backoff)
         async with self.pending_lock:
             self.pending.add(task)
             self.done_event.clear()
@@ -159,5 +217,5 @@ class TaskProcessor:
     ) -> PendingTask:
         """Run a single coroutine with no retries."""
         return await self.run_retry(
-            lambda pending: task, ident=ident, retries=0, when_ready=when_ready
+            lambda pending: task, ident=ident, limit=1, when_ready=when_ready
         )
