@@ -384,6 +384,7 @@ class Conductor:
                 target.recipient_keys or [],
                 (not direct_response) and target.routing_keys or [],
                 target.sender_key,
+                target.encryption_mode,
             )
             message.encoded = True
 

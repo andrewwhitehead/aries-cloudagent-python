@@ -25,6 +25,7 @@ class ConnectionTarget(BaseModel):
         recipient_keys: Sequence[str] = None,
         routing_keys: Sequence[str] = None,
         sender_key: str = None,
+        encryption_mode: str = None,
     ):
         """
         Initialize a ConnectionTarget instance.
@@ -35,6 +36,8 @@ class ConnectionTarget(BaseModel):
             label: A label for the connection
             recipient_key: A list of recipient keys
             routing_keys: A list of routing keys
+            sender_key: The verkey used by the sender
+            encryption_mode: The encryption mode to use for messaging
         """
         self.did = did
         self.endpoint = endpoint
@@ -42,6 +45,7 @@ class ConnectionTarget(BaseModel):
         self.recipient_keys = list(recipient_keys) if recipient_keys else []
         self.routing_keys = list(routing_keys) if routing_keys else []
         self.sender_key = sender_key
+        self.encryption_mode = encryption_mode
 
 
 class ConnectionTargetSchema(BaseModelSchema):
@@ -52,40 +56,25 @@ class ConnectionTargetSchema(BaseModelSchema):
 
         model_class = ConnectionTarget
 
-    did = fields.Str(
-        required=False,
-        description="",
-        **INDY_DID
-    )
+    did = fields.Str(required=False, description="", **INDY_DID)
     endpoint = fields.Str(
         required=False,
         description="Connection endpoint",
         example="http://192.168.56.102:8020",
     )
-    label = fields.Str(
-        required=False,
-        description="Connection label",
-        example="Bob"
-    )
+    label = fields.Str(required=False, description="Connection label", example="Bob")
     recipient_keys = fields.List(
-        fields.Str(
-            description="Recipient public key",
-            **INDY_RAW_PUBLIC_KEY
-        ),
+        fields.Str(description="Recipient public key", **INDY_RAW_PUBLIC_KEY),
         required=False,
-        description="List of recipient keys"
+        description="List of recipient keys",
     )
     routing_keys = fields.List(
-        fields.Str(
-            description="Routing key",
-            **INDY_RAW_PUBLIC_KEY
-        ),
+        fields.Str(description="Routing key", **INDY_RAW_PUBLIC_KEY),
         data_key="routingKeys",
         required=False,
         description="List of routing keys",
     )
     sender_key = fields.Str(
-        required=False,
-        description="Sender public key",
-        **INDY_RAW_PUBLIC_KEY
+        required=False, description="Sender public key", **INDY_RAW_PUBLIC_KEY
     )
+    encryption_mode = fields.Str(required=False, description="Encryption mode")

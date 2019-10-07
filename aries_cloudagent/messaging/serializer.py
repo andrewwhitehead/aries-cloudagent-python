@@ -20,6 +20,8 @@ LOGGER = logging.getLogger(__name__)
 class MessageSerializer:
     """Standard DIDComm message parser and serializer."""
 
+    UNPACKED_MESSAGE_TYPE = "unpacked-message"
+
     def __init__(self):
         """Initialize the message serializer instance."""
 
@@ -59,8 +61,8 @@ class MessageSerializer:
 
         try:
             message_dict = json.loads(message_json)
-        except ValueError:
-            raise MessageParseError("Message JSON parsing failed")
+        except ValueError as e:
+            raise MessageParseError("Message JSON parsing failed") from e
         if not isinstance(message_dict, dict):
             raise MessageParseError("Message JSON result is not an object")
 
@@ -76,16 +78,28 @@ class MessageSerializer:
                 message_json, delivery.sender_verkey, delivery.recipient_verkey = (
                     unpacked
                 )
+                delivery.encryption_mode = "pack"
             except WalletError:
                 LOGGER.debug("Message unpack failed, falling back to JSON")
             else:
                 delivery.raw_message = message_json
                 try:
                     message_dict = json.loads(message_json)
-                except ValueError:
-                    raise MessageParseError("Message JSON parsing failed")
+                except ValueError as e:
+                    raise MessageParseError("Message JSON parsing failed") from e
                 if not isinstance(message_dict, dict):
                     raise MessageParseError("Message JSON result is not an object")
+        elif message_dict["@type"] == self.UNPACKED_MESSAGE_TYPE:
+            message_json = message_dict.get("content")
+            if not message_json:
+                raise MessageParseError("Missing content for unpacked message")
+            delivery.sender_verkey = message_dict.get("sender")
+            delivery.recipient_verkey = message_dict.get("recipient")
+            delivery.encryption_mode = "none"
+            try:
+                message_dict = json.loads(message_json)
+            except ValueError as e:
+                raise MessageParseError("Message JSON parsing failed") from e
 
         # parse thread ID
         thread_dec = message_dict.get("~thread")
@@ -123,6 +137,7 @@ class MessageSerializer:
         recipient_keys: Sequence[str],
         routing_keys: Sequence[str],
         sender_key: str,
+        encryption_mode: str = None,
     ) -> Union[str, bytes]:
         """
         Encode an outgoing message for transport.
@@ -133,25 +148,40 @@ class MessageSerializer:
             recipient_keys: A sequence of recipient verkeys
             routing_keys: A sequence of routing verkeys
             sender_key: The verification key of the sending agent
+            encryption_mode: Optionally override the encryption mode
 
         Returns:
             The encoded message
 
         """
 
-        wallet: BaseWallet = await context.inject(BaseWallet)
-
         if sender_key and recipient_keys:
-            message = await wallet.pack_message(
-                message_json, recipient_keys, sender_key
-            )
-            if routing_keys:
-                recip_keys = recipient_keys
-                for router_key in routing_keys:
-                    fwd_msg = Forward(to=recip_keys[0], msg=message)
-                    # Forwards are anon packed
-                    recip_keys = [router_key]
-                    message = await wallet.pack_message(fwd_msg.to_json(), recip_keys)
+            if encryption_mode == "none":
+                message = json.dumps(
+                    {
+                        "@type": self.UNPACKED_MESSAGE_TYPE,
+                        "content": message_json,
+                        "sender": sender_key,
+                        "recipient": recipient_keys[0],
+                    }
+                )
+            else:
+                wallet: BaseWallet = await context.inject(BaseWallet)
+                message = await wallet.pack_message(
+                    message_json, recipient_keys, sender_key
+                )
+
+                if routing_keys:
+                    recip_keys = recipient_keys
+                    for router_key in routing_keys:
+                        fwd_msg = Forward(to=recip_keys[0], msg=message)
+                        # Forwards are anon packed
+                        recip_keys = [router_key]
+                        message = await wallet.pack_message(
+                            fwd_msg.to_json(), recip_keys
+                        )
+
         else:
             message = message_json
+
         return message

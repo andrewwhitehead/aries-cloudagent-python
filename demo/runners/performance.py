@@ -69,6 +69,12 @@ class BaseAgent(DemoAgent):
                 self.log("Connected")
                 self._connection_ready.set_result(True)
 
+    async def drop_encryption(self):
+        if self.connection_id:
+            await self.admin_POST(
+                f"/connections/{self.connection_id}", {"encryption_mode": "none"}
+            )
+
 
 class AliceAgent(BaseAgent):
     def __init__(self, port: int, **kwargs):
@@ -173,7 +179,13 @@ class RoutingAgent(BaseAgent):
         super().__init__("Router", port, **kwargs)
 
 
-async def main(start_port: int, show_timing: bool = False, routing: bool = False):
+async def main(
+    start_port: int,
+    issue_count: int = 300,
+    show_timing: bool = False,
+    routing: bool = False,
+    no_pack: bool = False,
+):
 
     genesis = await default_genesis_txns()
     if not genesis:
@@ -229,14 +241,17 @@ async def main(start_port: int, show_timing: bool = False, routing: bool = False
 
             await asyncio.wait_for(faber.detect_connection(), 30)
 
+            if no_pack:
+                await alice.drop_encryption()
+                await faber.drop_encryption()
+
         if show_timing:
             await alice.reset_timing()
             await faber.reset_timing()
             if routing:
                 await alice_router.reset_timing()
 
-        issue_count = 300
-        batch_size = 100
+        batch_size = 50
 
         semaphore = asyncio.Semaphore(10)
 
@@ -357,6 +372,14 @@ if __name__ == "__main__":
         description="Runs an automated credential issuance performance demo."
     )
     parser.add_argument(
+        "-c",
+        "--count",
+        type=int,
+        default=300,
+        metavar=("<credentials>"),
+        help="Adjust the number of test credentials to issue",
+    )
+    parser.add_argument(
         "-p",
         "--port",
         type=int,
@@ -370,13 +393,14 @@ if __name__ == "__main__":
     parser.add_argument(
         "--timing", action="store_true", help="Enable detailed timing report"
     )
+    parser.add_argument("--no-pack", action="store_true", help="Skip message packing")
     args = parser.parse_args()
 
     require_indy()
 
     try:
         asyncio.get_event_loop().run_until_complete(
-            main(args.port, args.timing, args.routing)
+            main(args.port, args.count, args.timing, args.routing, args.no_pack)
         )
     except KeyboardInterrupt:
         os._exit(1)

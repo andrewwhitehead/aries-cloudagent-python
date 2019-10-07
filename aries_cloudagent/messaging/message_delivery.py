@@ -14,6 +14,7 @@ class MessageDelivery:
         connection_id: str = None,
         direct_response: bool = False,
         direct_response_requested: str = None,
+        encryption_mode: str = None,
         in_time: datetime = None,
         raw_message: str = None,
         recipient_verkey: str = None,
@@ -29,6 +30,7 @@ class MessageDelivery:
         self._connection_id = connection_id
         self._direct_response = direct_response
         self._direct_response_requested = direct_response_requested
+        self._encryption_mode = encryption_mode
         self._in_time = in_time
         self._raw_message = raw_message
         self._recipient_verkey = recipient_verkey
@@ -105,6 +107,28 @@ class MessageDelivery:
 
         """
         self._direct_response_requested = direct_mode
+
+    @property
+    def encryption_mode(self) -> str:
+        """
+        Accessor for the encryption mode.
+
+        Returns:
+            This message's encryption mode
+
+        """
+        return self._direct_response_requested
+
+    @encryption_mode.setter
+    def encryption_mode(self, enc_mode: str):
+        """
+        Setter for the string indicating the encryption mode.
+
+        Args:
+            enc_mode: This message's encryption mode
+
+        """
+        self._encryption_mode = enc_mode
 
     @property
     def in_time(self) -> str:

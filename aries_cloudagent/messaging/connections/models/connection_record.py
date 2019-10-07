@@ -56,6 +56,9 @@ class ConnectionRecord(BaseRecord):  # lgtm[py/missing-equals]
     INVITATION_MODE_ONCE = "once"
     INVITATION_MODE_MULTI = "multi"
 
+    ENCRYPTION_MODE_DEFAULT = "default"
+    ENCRYPTION_MODE_NONE = "none"
+
     ROUTING_STATE_NONE = "none"
     ROUTING_STATE_REQUEST = "request"
     ROUTING_STATE_ACTIVE = "active"
@@ -80,6 +83,7 @@ class ConnectionRecord(BaseRecord):  # lgtm[py/missing-equals]
         error_msg: str = None,
         routing_state: str = None,
         accept: str = None,
+        encryption_mode: str = None,
         invitation_mode: str = None,
         alias: str = None,
         **kwargs,
@@ -97,6 +101,7 @@ class ConnectionRecord(BaseRecord):  # lgtm[py/missing-equals]
         self.inbound_connection_id = inbound_connection_id
         self.routing_state = routing_state or self.ROUTING_STATE_NONE
         self.accept = accept or self.ACCEPT_MANUAL
+        self.encryption_mode = encryption_mode or self.ENCRYPTION_MODE_DEFAULT
         self.invitation_mode = invitation_mode or self.INVITATION_MODE_ONCE
         self.alias = alias
 
@@ -108,7 +113,11 @@ class ConnectionRecord(BaseRecord):  # lgtm[py/missing-equals]
     @property
     def record_value(self) -> dict:
         """Accessor to for the JSON record value properties for this connection."""
-        return {"error_msg": self.error_msg, "their_label": self.their_label}
+        return {
+            "error_msg": self.error_msg,
+            "their_label": self.their_label,
+            "encryption_mode": self.encryption_mode,
+        }
 
     @property
     def record_tags(self) -> dict:
@@ -378,29 +387,21 @@ class ConnectionRecordSchema(BaseRecordSchema):
         model_class = ConnectionRecord
 
     connection_id = fields.Str(
-        required=False,
-        description="Connection identifier",
-        example=UUIDFour.EXAMPLE,
+        required=False, description="Connection identifier", example=UUIDFour.EXAMPLE
     )
     my_did = fields.Str(
-        required=False,
-        description="Our DID for connection",
-        **INDY_DID
+        required=False, description="Our DID for connection", **INDY_DID
     )
     their_did = fields.Str(
-        required=False,
-        description="Their DID for connection",
-        **INDY_DID
+        required=False, description="Their DID for connection", **INDY_DID
     )
     their_label = fields.Str(
-        required=False,
-        description="Their label for connection",
-        example="Bob"
+        required=False, description="Their label for connection", example="Bob"
     )
     their_role = fields.Str(
         required=False,
         description="Their assigned role for connection",
-        example="Point of contact"
+        example="Point of contact",
     )
     inbound_connection_id = fields.Str(
         required=False,
@@ -414,9 +415,7 @@ class ConnectionRecordSchema(BaseRecordSchema):
         validate=OneOf(["self", "external", "multiuse"]),
     )
     invitation_key = fields.Str(
-        required=False,
-        description="Public key for connection",
-        **INDY_RAW_PUBLIC_KEY
+        required=False, description="Public key for connection", **INDY_RAW_PUBLIC_KEY
     )
     request_id = fields.Str(
         required=False,
@@ -439,11 +438,16 @@ class ConnectionRecordSchema(BaseRecordSchema):
         description="Error message",
         example="No DIDDoc provided; cannot connect to public DID",
     )
+    encryption_mode = fields.Str(
+        required=False,
+        description="Encryption mode: none or pack",
+        validate=OneOf(["none", "pack"]),
+    )
     invitation_mode = fields.Str(
         required=False,
         description="Invitation mode: once or multi",
         example=ConnectionRecord.INVITATION_MODE_ONCE,
-        validate=OneOf(["once", "multi"])
+        validate=OneOf(["once", "multi"]),
     )
     alias = fields.Str(
         required=False,

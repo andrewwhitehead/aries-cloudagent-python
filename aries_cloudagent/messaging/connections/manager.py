@@ -68,7 +68,7 @@ class ConnectionManager:
         accept: str = None,
         public: bool = False,
         multi_use: bool = False,
-        alias: str = None
+        alias: str = None,
     ) -> Tuple[ConnectionRecord, ConnectionInvitation]:
         """
         Generate new connection invitation.
@@ -161,7 +161,7 @@ class ConnectionManager:
             state=ConnectionRecord.STATE_INVITATION,
             accept=accept,
             invitation_mode=invitation_mode,
-            alias=alias
+            alias=alias,
         )
 
         await connection.save(self.context, reason="Created new invitation")
@@ -217,7 +217,7 @@ class ConnectionManager:
             their_role=their_role,
             state=ConnectionRecord.STATE_INVITATION,
             accept=accept,
-            alias=alias
+            alias=alias,
         )
 
         await connection.save(
@@ -357,7 +357,7 @@ class ConnectionManager:
 
                 await new_connection.save(
                     self.context,
-                    reason="Received connection request from multi-use invitation DID"
+                    reason="Received connection request from multi-use invitation DID",
                 )
                 connection = new_connection
 
@@ -874,6 +874,7 @@ class ConnectionManager:
                 recipient_keys=recipient_keys,
                 routing_keys=routing_keys,
                 sender_key=my_info.verkey,
+                encryption_mode=connection.encryption_mode,
             )
         else:
             if not connection.their_did:
@@ -882,7 +883,7 @@ class ConnectionManager:
 
             doc = await self.fetch_did_document(connection.their_did)
             result = self.diddoc_connection_target(
-                doc, my_info.verkey, connection.their_label
+                doc, my_info.verkey, connection.their_label, connection.encryption_mode
             )
 
         if cache:
@@ -891,7 +892,11 @@ class ConnectionManager:
         return result
 
     def diddoc_connection_target(
-        self, doc: DIDDoc, sender_verkey: str, their_label: str = None
+        self,
+        doc: DIDDoc,
+        sender_verkey: str,
+        their_label: str = None,
+        encryption_mode: str = None,
     ) -> ConnectionTarget:
         """Create a connection target from a DID Document.
 
@@ -899,6 +904,7 @@ class ConnectionManager:
             doc: The DID Document to create the target from
             sender_verkey: The verkey we are using
             their_label: The connection label they are using
+            encryption_mode: The encryption mode to use for messaging
         """
 
         if not doc:
@@ -919,6 +925,7 @@ class ConnectionManager:
                 recipient_keys=[key.value for key in (service.recip_keys or ())],
                 routing_keys=[key.value for key in (service.routing_keys or ())],
                 sender_key=sender_verkey,
+                encryption_mode=encryption_mode,
             )
 
     async def establish_inbound(

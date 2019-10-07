@@ -26,6 +26,12 @@ class ConnectionListSchema(Schema):
     )
 
 
+class ConnectionUpdateSchema(Schema):
+    """Request schema for updating a connection."""
+
+    encryption_mode = fields.Str(required=False)
+
+
 class InvitationResultSchema(Schema):
     """Result schema for a new connection invitation."""
 
@@ -164,6 +170,41 @@ async def connections_retrieve(request: web.BaseRequest):
         record = await ConnectionRecord.retrieve_by_id(context, connection_id)
     except StorageNotFoundError:
         raise web.HTTPNotFound()
+    return web.json_response(record.serialize())
+
+
+@docs(tags=["connection"], summary="Update a single connection record")
+@request_schema(ConnectionUpdateSchema())
+@response_schema(ConnectionRecordSchema(), 200)
+async def connections_update(request: web.BaseRequest):
+    """
+    Request handler for updating a single connection record.
+
+    Args:
+        request: aiohttp request object
+
+    Returns:
+        The updated connection record response
+
+    """
+    context = request.app["request_context"]
+    connection_id = request.match_info["id"]
+    body = await request.json()
+    try:
+        record = await ConnectionRecord.retrieve_by_id(context, connection_id)
+    except StorageNotFoundError:
+        raise web.HTTPNotFound()
+
+    updated = False
+
+    enc = body.get("encryption_mode")
+    if enc:
+        record.encryption_mode = enc
+        updated = True
+
+    if updated:
+        await record.save(context, reason="Updated by controller")
+
     return web.json_response(record.serialize())
 
 
@@ -401,7 +442,6 @@ async def register(app: web.Application):
     app.add_routes(
         [
             web.get("/connections", connections_list),
-            web.get("/connections/{id}", connections_retrieve),
             web.post("/connections/create-invitation", connections_create_invitation),
             web.post("/connections/receive-invitation", connections_receive_invitation),
             web.post(
@@ -413,5 +453,7 @@ async def register(app: web.Application):
                 connections_establish_inbound,
             ),
             web.post("/connections/{id}/remove", connections_remove),
+            web.get("/connections/{id}", connections_retrieve),
+            web.post("/connections/{id}", connections_update),
         ]
     )
