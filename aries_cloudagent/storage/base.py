@@ -249,6 +249,7 @@ class BaseStorageRecordSearch(ABC):
         if not results:
             raise StorageNotFoundError("Record not found")
         if len(results) > 1:
+            print(len(results))
             raise StorageDuplicateError("Duplicate records found")
         return results[0]
 

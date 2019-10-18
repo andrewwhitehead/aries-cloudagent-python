@@ -13,30 +13,20 @@ from .error import (
     StorageNotFoundError,
     StorageSearchError,
 )
-from .record import StorageRecord
+from .record import StorageRecord, validate_record
 from ..wallet.indy import IndyWallet
-
-
-def _validate_record(record: StorageRecord):
-    if not record:
-        raise StorageError("No record provided")
-    if not record.id:
-        raise StorageError("Record has no ID")
-    if not record.type:
-        raise StorageError("Record has no type")
-    if not record.value:
-        raise StorageError("Record must have a non-empty value")
 
 
 class IndyStorage(BaseStorage):
     """Indy Non-Secrets interface."""
 
-    def __init__(self, wallet: IndyWallet):
+    def __init__(self, wallet: IndyWallet, _settings: dict = None):
         """
-        Initialize a `BasicStorage` instance.
+        Initialize an `IndyStorage` instance.
 
         Args:
             wallet: The indy wallet instance to use
+            _settings: Context configuration settings
 
         """
         self._wallet = wallet
@@ -54,7 +44,7 @@ class IndyStorage(BaseStorage):
             record: `StorageRecord` to be stored
 
         """
-        _validate_record(record)
+        validate_record(record)
         tags_json = json.dumps(record.tags) if record.tags else None
         try:
             await non_secrets.add_wallet_record(
@@ -128,7 +118,7 @@ class IndyStorage(BaseStorage):
             StorageError: If a libindy error occurs
 
         """
-        _validate_record(record)
+        validate_record(record)
         try:
             await non_secrets.update_wallet_record_value(
                 self._wallet.handle, record.type, record.id, value
@@ -151,7 +141,7 @@ class IndyStorage(BaseStorage):
             StorageError: If a libindy error occurs
 
         """
-        _validate_record(record)
+        validate_record(record)
         tags_json = json.dumps(tags) if tags else "{}"
         try:
             await non_secrets.update_wallet_record_tags(
@@ -173,7 +163,7 @@ class IndyStorage(BaseStorage):
             tags: Tags
 
         """
-        _validate_record(record)
+        validate_record(record)
         if tags:
             # check existence of record first (otherwise no exception thrown)
             await self.get_record(record.type, record.id)
@@ -195,7 +185,7 @@ class IndyStorage(BaseStorage):
             StorageError: If a libindy error occurs
 
         """
-        _validate_record(record)
+        validate_record(record)
         try:
             await non_secrets.delete_wallet_record(
                 self._wallet.handle, record.type, record.id

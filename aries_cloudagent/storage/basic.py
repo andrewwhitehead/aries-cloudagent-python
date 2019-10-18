@@ -3,6 +3,8 @@
 from collections import OrderedDict
 from typing import Mapping, Sequence
 
+from ..wallet.base import BaseWallet
+
 from .base import BaseStorage, BaseStorageRecordSearch
 from .error import (
     StorageError,
@@ -11,18 +13,18 @@ from .error import (
     StorageSearchError,
 )
 from .record import StorageRecord
-from ..wallet.base import BaseWallet
 
 
 class BasicStorage(BaseStorage):
     """Basic in-memory storage class."""
 
-    def __init__(self, _wallet: BaseWallet = None):
+    def __init__(self, _wallet: BaseWallet = None, _settings: dict = None):
         """
         Initialize a `BasicStorage` instance.
 
         Args:
             _wallet: The wallet implementation to use
+            _settings: Context configuration settings
 
         """
         self._records = OrderedDict()

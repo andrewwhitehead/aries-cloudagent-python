@@ -16,6 +16,7 @@ class StorageProvider(BaseProvider):
         "basic": "aries_cloudagent.storage.basic.BasicStorage",
         "indy": "aries_cloudagent.storage.indy.IndyStorage",
         "postgres_storage": "aries_cloudagent.storage.indy.IndyStorage",
+        "postgres_native": "aries_cloudagent.storage.postgres.PostgresStorage",
     }
 
     async def provide(self, settings: BaseSettings, injector: BaseInjector):
@@ -29,5 +30,7 @@ class StorageProvider(BaseProvider):
             "storage.type", default=storage_default_type
         ).lower()
         storage_class = self.STORAGE_TYPES.get(storage_type, storage_type)
-        storage = ClassLoader.load_class(storage_class)(wallet)
+        storage = ClassLoader.load_class(storage_class)(wallet, settings)
+        if hasattr(storage, "init_storage"):
+            await storage.init_storage()
         return storage
