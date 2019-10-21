@@ -18,39 +18,6 @@ from .error import (
 )
 from .record import StorageRecord, validate_record
 
-KEEPALIVE = 10
-
-
-class ConnectionContext:
-    """Simple replacement for contextlib.asynccontextmanager."""
-
-    def __init__(self, pool_mgr: "ConnectionPoolManager"):
-        self.conn: asyncpg.Connection = None
-        self.pool = None
-        self.pool_mgr = pool_mgr
-        self.refs = 0
-
-    async def open(self) -> asyncpg.Connection:
-        if not self.conn:
-            pool = await self.pool_mgr.pool()
-            self.conn = await pool.acquire()
-        self.refs += 1
-        return self.conn
-
-    async def close(self):
-        if self.refs:
-            self.refs -= 1
-        if not self.refs:
-            pool = await self.pool_mgr.pool()
-            await pool.release(self.conn)
-            self.conn = None
-
-    async def __aenter__(self):
-        return await self.open()
-
-    async def __aexit__(self, err_type, err_val, err_tb):
-        await self.close()
-
 
 class ConnectionPoolManager:
     def __init__(self, settings: dict):
@@ -82,27 +49,35 @@ class ConnectionPoolManager:
         self._config = config
         self._creds = creds
 
-    async def pool(self) -> asyncpg.pool.Pool:
+    @property
+    def pool(self) -> asyncpg.pool.Pool:
         if not self._pool:
-            async with self._init_lock:
-                if not self._pool:
-                    url = self._config["url"]
-                    if "://" not in url:
-                        url = f"http://{url}"
-                    parts = urlparse(url)
-                    self._pool = await asyncpg.create_pool(
-                        host=parts.hostname,
-                        port=parts.port or 5432,
-                        user=self._creds["admin_account"],
-                        password=self._creds["admin_password"],
-                        database=self._config["name"],
-                    )
-                    # except asyncpg.InvalidCatalogNameError: connect to template1
+            url = self._config["url"]
+            if "://" not in url:
+                url = f"http://{url}"
+            parts = urlparse(url)
+            self._pool = asyncpg.create_pool(
+                host=parts.hostname,
+                port=parts.port or 5432,
+                user=self._creds["admin_account"],
+                password=self._creds["admin_password"],
+                database=self._config["name"],
+                min_size=1,
+                max_size=5,
+            )
         return self._pool
 
-    def connection(self) -> asyncpg.Connection:
-        """Open a connection handle."""
-        return ConnectionContext(self)
+    @property
+    def connection(self) -> asyncpg.pool.PoolAcquireContext:
+        """Return a connection handle."""
+        return self.pool.acquire()
+
+    async def release(self, conn: asyncpg.Connection):
+        if conn:
+            await self.pool.release(conn)
+
+    async def setup(self):
+        await self.pool
 
 
 class PostgresStorage(BaseStorage):
@@ -142,8 +117,8 @@ class PostgresStorage(BaseStorage):
         """
         if reset:
             create_sql += "DELETE FROM unenc_storage;"
-        # FIXME unique tag name restriction
-        async with self.pool_mgr.connection() as conn:
+        await self.pool_mgr.setup()
+        async with self.pool_mgr.connection as conn:
             await conn.execute(create_sql)
 
     async def add_record(self, record: StorageRecord):
@@ -164,7 +139,7 @@ class PostgresStorage(BaseStorage):
             (record_id, tag_name, tag_value) VALUES ($1, $2, $3)
         """
         try:
-            async with self.pool_mgr.connection() as conn:
+            async with self.pool_mgr.connection as conn:
                 async with conn.transaction():
                     await conn.execute(insert_sql, record.id, record.type, record.value)
                     if record.tags:
@@ -209,7 +184,7 @@ class PostgresStorage(BaseStorage):
         """
         value = None
         tags = {}
-        async with self.pool_mgr.connection() as conn:
+        async with self.pool_mgr.connection as conn:
             row = await conn.fetchrow(select_sql, record_id, record_type)
             if not row:
                 raise StorageNotFoundError("Record not found: {}".format(record_id))
@@ -238,7 +213,7 @@ class PostgresStorage(BaseStorage):
             WHERE record_id=$2 AND record_type=$3
             RETURNING 1
         """
-        async with self.pool_mgr.connection() as conn:
+        async with self.pool_mgr.connection as conn:
             updated = await conn.fetchval(update_sql, value, record.id, record.type)
             if not updated:
                 raise StorageNotFoundError("Record not found: {}".format(record.id))
@@ -273,7 +248,7 @@ class PostgresStorage(BaseStorage):
         # check existence of record first (otherwise no exception thrown)
         await self.get_record(record.type, record.id)
 
-        async with self.pool_mgr.connection() as conn:
+        async with self.pool_mgr.connection as conn:
             async with conn.transaction():
                 exist_tags = {}
                 for tag_row in await conn.fetch(select_tags_sql, record.id):
@@ -312,7 +287,7 @@ class PostgresStorage(BaseStorage):
         """
 
         if tags:
-            async with self.pool_mgr.connection() as conn:
+            async with self.pool_mgr.connection as conn:
                 removed = await conn.fetchval(delete_tags_sql, record.id, list(tags))
                 if not removed:
                     raise StorageNotFoundError("Record not found: {}".format(record.id))
@@ -334,7 +309,7 @@ class PostgresStorage(BaseStorage):
             DELETE FROM unenc_storage WHERE record_id=$1 AND record_type=$2
             RETURNING 1
         """
-        async with self.pool_mgr.connection() as conn:
+        async with self.pool_mgr.connection as conn:
             removed = await conn.fetchval(delete_sql, record.id, record.type)
             if not removed:
                 raise StorageNotFoundError("Record not found: {}".format(record.id))
@@ -459,7 +434,6 @@ class PostgresStorageRecordSearch(BaseStorageRecordSearch):
             store, type_filter, tag_query, page_size
         )
         self._conn: asyncpg.Connection = None
-        self._conn_ctx: ConnectionContext = None
         self._handle: asyncpg.cursor.Cursor = None
         self._txn: asyncpg.transaction.Transaction = None
 
@@ -530,8 +504,7 @@ class PostgresStorageRecordSearch(BaseStorageRecordSearch):
         if tag_filter_sql:
             select_sql += f" AND {tag_filter_sql}"
         # print("query", select_sql)
-        self._conn_ctx = self._store.pool_mgr.connection()
-        self._conn = await self._conn_ctx.open()
+        self._conn = await self._store.pool_mgr.connection
         self._txn = self._conn.transaction()
         await self._txn.start()
         self._handle = await self._conn.cursor(select_sql, self.type_filter, *tag_args)
@@ -542,8 +515,8 @@ class PostgresStorageRecordSearch(BaseStorageRecordSearch):
             self._handle = None
         if self._conn:
             await self._txn.commit()
-            await self._conn_ctx.close()
+            self._txn = None
+            await self._store.pool_mgr.release(self._conn)
             self._conn = None
-            self._conn_ctx = None
 
     # FIXME  def __del__(self):
