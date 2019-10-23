@@ -64,8 +64,14 @@ class ConnectionPoolManager:
                 database=self._config["name"],
                 min_size=1,
                 max_size=5,
+                init=self.init_connection,
             )
         return self._pool
+
+    async def init_connection(self, conn: asyncpg.Connection):
+        """Init the connection by registering needed codecs."""
+        await conn.execute('CREATE EXTENSION IF NOT EXISTS hstore')
+        await conn.set_builtin_type_codec("hstore", codec_name="pg_contrib.hstore")
 
     @property
     def connection(self) -> asyncpg.pool.PoolAcquireContext:
@@ -102,17 +108,11 @@ class PostgresStorage(BaseStorage):
         """Initialize non-secrets tables."""
         create_sql = """
             CREATE TABLE IF NOT EXISTS unenc_storage (
-                record_id varchar(36),
-                record_type text,
-                record_value text,
+                record_id VARCHAR(36),
+                record_type TEXT,
+                record_value TEXT,
+                tags HSTORE,
                 PRIMARY KEY (record_id)
-            );
-            CREATE TABLE IF NOT EXISTS unenc_storage_tags (
-                record_id varchar(36) REFERENCES unenc_storage(record_id)
-                    ON DELETE CASCADE,
-                tag_name text,
-                tag_value text,
-                PRIMARY KEY (record_id, tag_name)
             );
         """
         if reset:
@@ -132,22 +132,13 @@ class PostgresStorage(BaseStorage):
         validate_record(record)
         insert_sql = """
             INSERT INTO unenc_storage
-            (record_id, record_type, record_value) VALUES ($1, $2, $3)
-        """
-        insert_tag_sql = """
-            INSERT INTO unenc_storage_tags
-            (record_id, tag_name, tag_value) VALUES ($1, $2, $3)
+            (record_id, record_type, record_value, tags) VALUES ($1, $2, $3, $4)
         """
         try:
             async with self.pool_mgr.connection as conn:
-                async with conn.transaction():
-                    await conn.execute(insert_sql, record.id, record.type, record.value)
-                    if record.tags:
-                        tag_rows = (
-                            (record.id, tag_name, tag_val)
-                            for (tag_name, tag_val) in record.tags.items()
-                        )
-                        await conn.executemany(insert_tag_sql, tag_rows)
+                await conn.execute(
+                    insert_sql, record.id, record.type, record.value, record.tags
+                )
         except asyncpg.UniqueViolationError as e:
             raise StorageDuplicateError(
                 "Duplicate record ID: {}".format(record.id)
@@ -176,10 +167,7 @@ class PostgresStorage(BaseStorage):
         if not record_id:
             raise StorageError("Record ID not provided")
         select_sql = """
-            SELECT record_value,
-            (SELECT array_to_json(array_agg(tags))
-            FROM (SELECT tag_name, tag_value from unenc_storage_tags
-            WHERE record_id=unenc_storage.record_id) tags) tags
+            SELECT record_value, tags
             FROM unenc_storage WHERE record_id=$1 and record_type=$2
         """
         value = None
@@ -189,8 +177,7 @@ class PostgresStorage(BaseStorage):
             if not row:
                 raise StorageNotFoundError("Record not found: {}".format(record_id))
             value = row["record_value"]
-            for tag_row in json.loads(row["tags"]) if row["tags"] else ():
-                tags[tag_row["tag_name"]] = tag_row["tag_value"]
+            tags = row["tags"] or {}
         # print("retrieved", value, tags)
         return StorageRecord(type=record_type, id=record_id, value=value, tags=tags)
 
@@ -232,46 +219,20 @@ class PostgresStorage(BaseStorage):
 
         """
         validate_record(record)
-        select_tags_sql = (
-            "SELECT tag_name, tag_value FROM unenc_storage_tags WHERE record_id=$1"
+        update_tags_sql = (
+            "UPDATE unenc_storage SET tags=$1 WHERE record_id=$2 RETURNING 1"
         )
-        insert_tags_sql = """
-            INSERT INTO unenc_storage_tags (record_id, tag_name, tag_value)
-            VALUES ($1, $2, $3)
-        """
-        delete_tags_sql = """
-            DELETE FROM unenc_storage_tags
-            WHERE record_id=$1 AND tag_name=ANY($2::text[])
-            RETURNING tag_name
-        """
-
-        # check existence of record first (otherwise no exception thrown)
-        await self.get_record(record.type, record.id)
 
         async with self.pool_mgr.connection as conn:
-            async with conn.transaction():
-                exist_tags = {}
-                for tag_row in await conn.fetch(select_tags_sql, record.id):
-                    exist_tags[tag_row["tag_name"]] = tag_row["tag_value"]
-                remove_tags = set(
-                    tag_name
-                    for tag_name in exist_tags
-                    if tag_name not in tags or tags[tag_name] != exist_tags[tag_name]
-                )
-                if remove_tags:
-                    await conn.execute(delete_tags_sql, record.id, remove_tags)
-                insert_tags = (
-                    (record.id, tag_name, tags[tag_name])
-                    for tag_name in tags
-                    if (tag_name not in exist_tags or tag_name in remove_tags)
-                )
-                await conn.executemany(insert_tags_sql, insert_tags)
+            updated = await conn.fetchval(update_tags_sql, tags or {}, record.id)
+            if not updated:
+                raise StorageNotFoundError("Record not found: {}".format(record.id))
 
     async def delete_record_tags(
         self, record: StorageRecord, tags: (Sequence, Mapping)
     ):
         """
-        Update an existing stored record's tags.
+        Remove an existing stored record's tags.
 
         Args:
             record: `StorageRecord` to delete
@@ -279,16 +240,14 @@ class PostgresStorage(BaseStorage):
 
         """
         validate_record(record)
-
         delete_tags_sql = """
-            DELETE FROM unenc_storage_tags
-            WHERE record_id=$1 AND tag_name=ANY($2::text[])
-            RETURNING tag_name
+            UPDATE unenc_storage SET tags = tags - $1::text[]
+            WHERE record_id=$2 RETURNING 1
         """
 
         if tags:
             async with self.pool_mgr.connection as conn:
-                removed = await conn.fetchval(delete_tags_sql, record.id, list(tags))
+                removed = await conn.fetchval(delete_tags_sql, list(tags, record.id))
                 if not removed:
                     raise StorageNotFoundError("Record not found: {}".format(record.id))
 
@@ -360,11 +319,7 @@ def tag_value_sql(tag_name: str, match: dict, idx=1) -> (str, list):
         # elif op == "$like":  NYI
         else:
             raise StorageSearchError("Unsupported match operator: ".format(op))
-    sql = (
-        "EXISTS (SELECT 1 FROM unenc_storage_tags WHERE "
-        f"tag_name = ${idx}::text AND tag_value {sql_op} ${idx+1}::text "
-        "AND record_id=unenc_storage.record_id)"
-    )
+    sql = f"tags -> ${idx} {sql_op} ${idx+1}"
     return sql, [tag_name, cmp_val]
 
 
@@ -478,15 +433,12 @@ class PostgresStorageRecordSearch(BaseStorageRecordSearch):
         rows = await self._handle.fetch(max_count)
         ret = []
         for row in rows:
-            tags = {}
-            for tag_row in json.loads(row["tags"]) if row["tags"] else ():
-                tags[tag_row["tag_name"]] = tag_row["tag_value"]
             ret.append(
                 StorageRecord(
                     type=row["record_type"],
                     id=row["record_id"],
                     value=row["record_value"],
-                    tags=tags,
+                    tags=row["tags"] or {},
                 )
             )
         return ret
@@ -494,10 +446,7 @@ class PostgresStorageRecordSearch(BaseStorageRecordSearch):
     async def open(self):
         """Start the search query."""
         select_sql = """
-            SELECT record_id, record_type, record_value,
-            (SELECT array_to_json(array_agg(tags))
-            FROM (SELECT tag_name, tag_value from unenc_storage_tags
-            WHERE record_id=unenc_storage.record_id) tags) tags
+            SELECT record_id, record_type, record_value, tags
             FROM unenc_storage WHERE record_type=$1
         """
         tag_filter_sql, tag_args = tag_query_sql(self.tag_query, 2)
