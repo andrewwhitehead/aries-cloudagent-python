@@ -114,6 +114,21 @@ class PostgresStorage(BaseStorage):
                 tags HSTORE,
                 PRIMARY KEY (record_id)
             );
+            CREATE INDEX IF NOT EXISTS unenc_initiator ON unenc_storage (
+                (tags -> 'initiator')
+            ) WHERE exist(tags, 'initiator');
+            CREATE INDEX IF NOT EXISTS unenc_thread_id ON unenc_storage (
+                (tags -> 'thread_id')
+            ) WHERE exist(tags, 'thread_id');
+            CREATE INDEX IF NOT EXISTS unenc_my_did ON unenc_storage (
+                (tags -> 'my_did')
+            ) WHERE exist(tags, 'my_did');
+            CREATE INDEX IF NOT EXISTS unenc_their_did ON unenc_storage (
+                (tags -> 'their_did')
+            ) WHERE exist(tags, 'their_did');
+            CREATE INDEX IF NOT EXISTS unenc_state ON unenc_storage (
+                (tags -> 'state')
+            ) WHERE exist(tags, 'state');
         """
         if reset:
             create_sql += "DELETE FROM unenc_storage;"
@@ -319,7 +334,7 @@ def tag_value_sql(tag_name: str, match: dict, idx=1) -> (str, list):
         # elif op == "$like":  NYI
         else:
             raise StorageSearchError("Unsupported match operator: ".format(op))
-    sql = f"tags -> ${idx} {sql_op} ${idx+1}"
+    sql = f"exist(tags, ${idx}) AND tags -> ${idx} {sql_op} ${idx+1}"
     return sql, [tag_name, cmp_val]
 
 
