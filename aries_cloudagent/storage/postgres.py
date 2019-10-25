@@ -20,6 +20,8 @@ from .record import StorageRecord, validate_record
 
 
 class ConnectionPoolManager:
+    """Manager for the postgres connection pool."""
+
     def __init__(self, settings: dict):
         """Initialize the connection handler."""
         self._config: dict = None
@@ -50,12 +52,18 @@ class ConnectionPoolManager:
         self._creds = creds
 
     @property
+    def parsed_url(self):
+        """Accessor for the parsed database URL."""
+        url = self._config["url"]
+        if "://" not in url:
+            url = f"http://{url}"
+        return urlparse(url)
+
+    @property
     def pool(self) -> asyncpg.pool.Pool:
+        """Accessor for the connection pool instance."""
         if not self._pool:
-            url = self._config["url"]
-            if "://" not in url:
-                url = f"http://{url}"
-            parts = urlparse(url)
+            parts = self.parsed_url
             self._pool = asyncpg.create_pool(
                 host=parts.hostname,
                 port=parts.port or 5432,
@@ -68,6 +76,27 @@ class ConnectionPoolManager:
             )
         return self._pool
 
+    async def create_database(self):
+        """Create the database."""
+        parts = self.parsed_url
+        conn = await asyncpg.connect(
+            host=parts.hostname,
+            port=parts.port or 5432,
+            user=self._creds["admin_account"],
+            password=self._creds["admin_password"],
+            database="template1",
+        )
+        await conn.execute(f"CREATE DATABASE \"{self._config['name']}\"")
+        await conn.close()
+
+    async def setup(self):
+        """Set up the connection pool, creating the database if necessary."""
+        try:
+            await self.pool
+        except asyncpg.exceptions.InvalidCatalogNameError:
+            await self.create_database()
+            await self.pool
+
     async def init_connection(self, conn: asyncpg.Connection):
         """Init the connection by registering needed codecs."""
         await conn.execute('CREATE EXTENSION IF NOT EXISTS hstore')
@@ -79,11 +108,9 @@ class ConnectionPoolManager:
         return self.pool.acquire()
 
     async def release(self, conn: asyncpg.Connection):
+        """Release a previously-acquired connection."""
         if conn:
             await self.pool.release(conn)
-
-    async def setup(self):
-        await self.pool
 
 
 class PostgresStorage(BaseStorage):
@@ -102,6 +129,7 @@ class PostgresStorage(BaseStorage):
 
     @property
     def pool_mgr(self) -> ConnectionPoolManager:
+        """Accessor for the `ConnectionPoolManager` instance."""
         return self._pool_mgr
 
     async def init_storage(self, reset: bool = False):
@@ -114,6 +142,9 @@ class PostgresStorage(BaseStorage):
                 tags HSTORE,
                 PRIMARY KEY (record_id)
             );
+            CREATE INDEX IF NOT EXISTS unenc_did ON unenc_storage (
+                (tags -> 'did')
+            ) WHERE exist(tags, 'did');
             CREATE INDEX IF NOT EXISTS unenc_initiator ON unenc_storage (
                 (tags -> 'initiator')
             ) WHERE exist(tags, 'initiator');
@@ -353,15 +384,17 @@ def tag_query_sql(tag_query: dict, idx=1) -> (str, list):
                     args.extend(cl_args)
                     cl_opts.append(cl_sql)
                     idx += len(cl_args)
-                # FIXME - add brackets
-                clauses.append(" OR ".join(cl_opts))
+                if len(cl_opts) == 1:
+                    clauses.append(cl_opts[0])
+                else:
+                    clauses.append(" OR ".join(f"({c})" for c in cl_opts))
             elif k == "$not":
                 if not isinstance(v, dict):
                     raise StorageSearchError("Expected dict for $not filter value")
                 cl_sql, cl_args = tag_query_sql(v, idx)
                 args.extend(cl_args)
                 idx += len(cl_args)
-                clauses.append(f"NOT {cl_sql}")
+                clauses.append(f"NOT ({cl_sql})")
             elif k[0] == "$":
                 raise StorageSearchError("Unexpected filter operator: {}".format(k))
             elif isinstance(v, str):

@@ -29,6 +29,7 @@ async def store():
     yield store
 
 
+@pytest.mark.postgres
 class TestPostgresStorage(test_basic_storage.TestBasicStorage):
     pass
 
@@ -37,19 +38,13 @@ class TestTagQuerySql:
     def test_name_filter(self):
         query = {"tag": "value"}
         sql, args = tag_query_sql(query)
-        assert (
-            sql
-            == "EXISTS (SELECT 1 FROM unenc_storage_tags WHERE tag_name = $1::text AND tag_value = $2::text AND record_id=unenc_storage.record_id)"
-        )
+        assert sql == "exist(tags, $1) AND tags -> $1 = $2"
         assert args == ["tag", "value"]
 
     def test_negate_name_filter(self):
         query = {"$not": {"tag": "value"}}
         sql, args = tag_query_sql(query)
-        assert (
-            sql
-            == "NOT EXISTS (SELECT 1 FROM unenc_storage_tags WHERE tag_name = $1::text AND tag_value = $2::text AND record_id=unenc_storage.record_id)"
-        )
+        assert sql == "NOT (exist(tags, $1) AND tags -> $1 = $2)"
         assert args == ["tag", "value"]
 
     def test_inc_filter(self):
@@ -57,8 +52,7 @@ class TestTagQuerySql:
         sql, args = tag_query_sql(query)
         assert (
             sql
-            == "EXISTS (SELECT 1 FROM unenc_storage_tags WHERE tag_name = $1::text AND tag_value = $2::text AND record_id=unenc_storage.record_id)"
-            " AND EXISTS (SELECT 1 FROM unenc_storage_tags WHERE tag_name = $3::text AND tag_value = $4::text AND record_id=unenc_storage.record_id)"
+            == "exist(tags, $1) AND tags -> $1 = $2 AND exist(tags, $3) AND tags -> $3 = $4"
         )
         assert args == ["tag1", "value1", "tag2", "value2"]
 
@@ -67,7 +61,6 @@ class TestTagQuerySql:
         sql, args = tag_query_sql(query)
         assert (
             sql
-            == "EXISTS (SELECT 1 FROM unenc_storage_tags WHERE tag_name = $1::text AND tag_value = $2::text AND record_id=unenc_storage.record_id)"
-            " OR EXISTS (SELECT 1 FROM unenc_storage_tags WHERE tag_name = $3::text AND tag_value = $4::text AND record_id=unenc_storage.record_id)"
+            == "(exist(tags, $1) AND tags -> $1 = $2) OR (exist(tags, $3) AND tags -> $3 = $4)"
         )
         assert args == ["tag1", "value1", "tag2", "value2"]
