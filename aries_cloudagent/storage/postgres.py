@@ -99,7 +99,7 @@ class ConnectionPoolManager:
 
     async def init_connection(self, conn: asyncpg.Connection):
         """Init the connection by registering needed codecs."""
-        await conn.execute('CREATE EXTENSION IF NOT EXISTS hstore')
+        await conn.execute("CREATE EXTENSION IF NOT EXISTS hstore")
         await conn.set_builtin_type_codec("hstore", codec_name="pg_contrib.hstore")
 
     @property
@@ -190,13 +190,16 @@ class PostgresStorage(BaseStorage):
                 "Duplicate record ID: {}".format(record.id)
             ) from e
 
-    async def get_record(self, record_type: str, record_id: str) -> StorageRecord:
+    async def get_record(
+        self, record_type: str, record_id: str, options: Mapping = None
+    ) -> StorageRecord:
         """
         Fetch a record from the store by type and ID.
 
         Args:
             record_type: The record type
             record_id: The record id
+            options: A dictionary of backend-specific options
 
         Returns:
             A `StorageRecord` instance
@@ -320,7 +323,11 @@ class PostgresStorage(BaseStorage):
                 raise StorageNotFoundError("Record not found: {}".format(record.id))
 
     def search_records(
-        self, type_filter: str, tag_query: Mapping = None, page_size: int = None
+        self,
+        type_filter: str,
+        tag_query: Mapping = None,
+        page_size: int = None,
+        options: Mapping = None,
     ) -> "PostgresStorageRecordSearch":
         """
         Search stored records.
@@ -329,12 +336,15 @@ class PostgresStorage(BaseStorage):
             type_filter: Filter string
             tag_query: Tags to query
             page_size: Page size
+            options: Dictionary of backend-specific options
 
         Returns:
             An instance of `BaseStorageRecordSearch`
 
         """
-        return PostgresStorageRecordSearch(self, type_filter, tag_query, page_size)
+        return PostgresStorageRecordSearch(
+            self, type_filter, tag_query, page_size, options
+        )
 
 
 def tag_value_sql(tag_name: str, match: dict, idx=1) -> (str, list):
@@ -422,6 +432,7 @@ class PostgresStorageRecordSearch(BaseStorageRecordSearch):
         type_filter: str,
         tag_query: Mapping,
         page_size: int = None,
+        options: Mapping = None,
     ):
         """
         Initialize a `PostgresStorageRecordSearch` instance.
@@ -431,10 +442,11 @@ class PostgresStorageRecordSearch(BaseStorageRecordSearch):
             type_filter: Filter string
             tag_query: Tags to search
             page_size: Size of page to return
+            options: Dictionary of backend-specific options
 
         """
         super(PostgresStorageRecordSearch, self).__init__(
-            store, type_filter, tag_query, page_size
+            store, type_filter, tag_query, page_size, options
         )
         self._conn: asyncpg.Connection = None
         self._handle: asyncpg.cursor.Cursor = None
