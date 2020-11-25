@@ -105,7 +105,7 @@ class TestConductor(AsyncTestCase, Config, TestDIDs):
 
             await conductor.setup()
 
-            wallet = await conductor.context.inject(BaseWallet)
+            wallet = conductor.context.inject(BaseWallet)
             await wallet.create_public_did()
 
             mock_inbound_mgr.return_value.setup.assert_awaited_once()
@@ -476,10 +476,10 @@ class TestConductor(AsyncTestCase, Config, TestDIDs):
         conductor = test_module.Conductor(builder)
 
         await conductor.setup()
-        admin = await conductor.context.inject(BaseAdminServer)
+        admin = conductor.context.inject(BaseAdminServer)
         assert admin is conductor.admin_server
 
-        wallet = await conductor.context.inject(BaseWallet)
+        wallet = conductor.context.inject(BaseWallet)
         await wallet.create_public_did()
 
         with async_mock.patch.object(
@@ -499,10 +499,10 @@ class TestConductor(AsyncTestCase, Config, TestDIDs):
         conductor = test_module.Conductor(builder)
 
         await conductor.setup()
-        admin = await conductor.context.inject(BaseAdminServer)
+        admin = conductor.context.inject(BaseAdminServer)
         assert admin is conductor.admin_server
 
-        wallet = await conductor.context.inject(BaseWallet)
+        wallet = conductor.context.inject(BaseWallet)
         await wallet.create_public_did()
 
         with async_mock.patch.object(
@@ -544,7 +544,7 @@ class TestConductor(AsyncTestCase, Config, TestDIDs):
         with async_mock.patch.object(test_module, "ConnectionManager") as mock_mgr:
             await conductor.setup()
 
-            wallet = await conductor.context.inject(BaseWallet)
+            wallet = conductor.context.inject(BaseWallet)
             await wallet.create_public_did()
 
             mock_mgr.return_value.create_static_connection = async_mock.CoroutineMock()
@@ -655,7 +655,7 @@ class TestConductor(AsyncTestCase, Config, TestDIDs):
         with async_mock.patch("sys.stdout", new=StringIO()) as captured:
             await conductor.setup()
 
-            wallet = await conductor.context.inject(BaseWallet)
+            wallet = conductor.context.inject(BaseWallet)
             await wallet.create_public_did()
 
             await conductor.start()

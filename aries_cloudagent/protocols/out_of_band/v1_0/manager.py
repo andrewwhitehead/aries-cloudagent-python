@@ -91,7 +91,7 @@ class OutOfBandManager:
             public=use_public_did,
             multi_use=multi_use,
         )
-        # wallet: BaseWallet = await self.context.inject(BaseWallet)
+        # wallet: BaseWallet = self.context.inject(BaseWallet)
 
         if not my_label:
             my_label = self.context.settings.get("default_label")
@@ -180,7 +180,7 @@ class OutOfBandManager:
     async def receive_invitation(self, invitation: InvitationMessage) -> ConnRecord:
         """Receive an out of band invitation message."""
 
-        ledger: BaseLedger = await self.context.inject(BaseLedger)
+        ledger: BaseLedger = self.context.inject(BaseLedger)
 
         # New message format
         invitation_message = InvitationMessage.deserialize(invitation)

@@ -124,7 +124,7 @@ class ConnectionManager:
         """
         if not my_label:
             my_label = self.context.settings.get("default_label")
-        wallet: BaseWallet = await self.context.inject(BaseWallet)
+        wallet: BaseWallet = self.context.inject(BaseWallet)
 
         if public:
             if not self.context.settings.get("public_invites"):
@@ -255,7 +255,7 @@ class ConnectionManager:
 
         if connection.accept == ConnRecord.ACCEPT_AUTO:
             request = await self.create_request(connection)
-            responder: BaseResponder = await self._context.inject(
+            responder: BaseResponder = self._context.inject(
                 BaseResponder, required=False
             )
             if responder:
@@ -287,7 +287,7 @@ class ConnectionManager:
             A new `ConnectionRequest` message to send to the other agent
 
         """
-        wallet: BaseWallet = await self.context.inject(BaseWallet)
+        wallet: BaseWallet = self.context.inject(BaseWallet)
         if connection.my_did:
             my_info = await wallet.get_local_did(connection.my_did)
         else:
@@ -345,7 +345,7 @@ class ConnectionManager:
 
         # Determine what key will need to sign the response
         if receipt.recipient_did_public:
-            wallet: BaseWallet = await self.context.inject(BaseWallet)
+            wallet: BaseWallet = self.context.inject(BaseWallet)
             my_info = await wallet.get_local_did(receipt.recipient_did)
             connection_key = my_info.verkey
         else:
@@ -370,7 +370,7 @@ class ConnectionManager:
             )
 
             if connection.is_multiuse_invitation:
-                wallet: BaseWallet = await self.context.inject(BaseWallet)
+                wallet: BaseWallet = self.context.inject(BaseWallet)
                 my_info = await wallet.create_local_did()
                 new_connection = ConnRecord(
                     invitation_key=connection_key,
@@ -429,7 +429,7 @@ class ConnectionManager:
 
         if connection.accept == ConnRecord.ACCEPT_AUTO:
             response = await self.create_response(connection)
-            responder: BaseResponder = await self._context.inject(
+            responder: BaseResponder = self._context.inject(
                 BaseResponder, required=False
             )
             if responder:
@@ -474,7 +474,7 @@ class ConnectionManager:
             )
 
         request = await connection.retrieve_request(self.context)
-        wallet: BaseWallet = await self.context.inject(BaseWallet)
+        wallet: BaseWallet = self.context.inject(BaseWallet)
         if connection.my_did:
             my_info = await wallet.get_local_did(connection.my_did)
         else:
@@ -500,7 +500,7 @@ class ConnectionManager:
         response.assign_thread_from(request)
         response.assign_trace_from(request)
         # Sign connection field using the invitation key
-        wallet: BaseWallet = await self.context.inject(BaseWallet)
+        wallet: BaseWallet = self.context.inject(BaseWallet)
         await response.sign_field("connection", connection.invitation_key, wallet)
 
         # Update connection state
@@ -615,7 +615,7 @@ class ConnectionManager:
             The new `ConnRecord` instance
 
         """
-        wallet: BaseWallet = await self.context.inject(BaseWallet)
+        wallet: BaseWallet = self.context.inject(BaseWallet)
 
         # seed and DID optional
         my_info = await wallet.create_local_did(my_seed, my_did)
@@ -722,7 +722,7 @@ class ConnectionManager:
                 f"connection_by_verkey::{receipt.sender_verkey}"
                 f"::{receipt.recipient_verkey}"
             )
-            cache: BaseCache = await self.context.inject(BaseCache, required=False)
+            cache: BaseCache = self.context.inject(BaseCache, required=False)
             if cache:
                 async with cache.acquire(cache_key) as entry:
                     if entry.result:
@@ -772,7 +772,7 @@ class ConnectionManager:
 
         if receipt.recipient_verkey:
             try:
-                wallet: BaseWallet = await self.context.inject(BaseWallet)
+                wallet: BaseWallet = self.context.inject(BaseWallet)
                 my_info = await wallet.get_local_did_for_verkey(
                     receipt.recipient_verkey
                 )
@@ -883,7 +883,7 @@ class ConnectionManager:
         Args:
             did: The DID to search for
         """
-        storage: BaseStorage = await self.context.inject(BaseStorage)
+        storage: BaseStorage = self.context.inject(BaseStorage)
         record = await storage.find_record(self.RECORD_TYPE_DID_DOC, {"did": did})
         return DIDDoc.from_json(record.value), record
 
@@ -894,7 +894,7 @@ class ConnectionManager:
             did_doc: The `DIDDoc` instance to be persisted
         """
         assert did_doc.did
-        storage: BaseStorage = await self.context.inject(BaseStorage)
+        storage: BaseStorage = self.context.inject(BaseStorage)
         try:
             stored_doc, record = await self.fetch_did_document(did_doc.did)
         except StorageNotFoundError:
@@ -917,7 +917,7 @@ class ConnectionManager:
             key: The verkey to be added
         """
         record = StorageRecord(self.RECORD_TYPE_DID_KEY, key, {"did": did, "key": key})
-        storage: BaseStorage = await self.context.inject(BaseStorage)
+        storage: BaseStorage = self.context.inject(BaseStorage)
         await storage.add_record(record)
 
     async def find_did_for_key(self, key: str) -> str:
@@ -926,7 +926,7 @@ class ConnectionManager:
         Args:
             key: The verkey to look up
         """
-        storage: BaseStorage = await self.context.inject(BaseStorage)
+        storage: BaseStorage = self.context.inject(BaseStorage)
         record = await storage.find_record(self.RECORD_TYPE_DID_KEY, {"key": key})
         return record.tags["did"]
 
@@ -936,7 +936,7 @@ class ConnectionManager:
         Args:
             did: The DID to remove keys for
         """
-        storage: BaseStorage = await self.context.inject(BaseStorage)
+        storage: BaseStorage = self.context.inject(BaseStorage)
         keys = await storage.search_records(
             self.RECORD_TYPE_DID_KEY, {"did": did}
         ).fetch_all()
@@ -954,7 +954,7 @@ class ConnectionManager:
         """
         if not connection_id:
             connection_id = connection.connection_id
-        cache: BaseCache = await self.context.inject(BaseCache, required=False)
+        cache: BaseCache = self.context.inject(BaseCache, required=False)
         cache_key = f"connection_target::{connection_id}"
         if cache:
             async with cache.acquire(cache_key) as entry:
@@ -987,7 +987,7 @@ class ConnectionManager:
             self._logger.debug("No local DID associated with connection")
             return None
 
-        wallet: BaseWallet = await self.context.inject(BaseWallet)
+        wallet: BaseWallet = self.context.inject(BaseWallet)
         my_info = await wallet.get_local_did(connection.my_did)
         results = None
 
@@ -999,9 +999,7 @@ class ConnectionManager:
             invitation = await connection.retrieve_invitation(self.context)
             if invitation.did:
                 # populate recipient keys and endpoint from the ledger
-                ledger: BaseLedger = await self.context.inject(
-                    BaseLedger, required=False
-                )
+                ledger: BaseLedger = self.context.inject(BaseLedger, required=False)
                 if not ledger:
                     raise ConnectionManagerError(
                         "Cannot resolve DID without ledger instance"
@@ -1085,7 +1083,7 @@ class ConnectionManager:
 
         # The connection must have a verkey, but in the case of a received
         # invitation we might not have created one yet
-        wallet: BaseWallet = await self.context.inject(BaseWallet)
+        wallet: BaseWallet = self.context.inject(BaseWallet)
         if connection.my_did:
             my_info = await wallet.get_local_did(connection.my_did)
         else:
@@ -1127,7 +1125,7 @@ class ConnectionManager:
         conns = await ConnRecord.query(
             self.context, {"inbound_connection_id": inbound_connection_id}
         )
-        wallet: BaseWallet = await self.context.inject(BaseWallet)
+        wallet: BaseWallet = self.context.inject(BaseWallet)
 
         for connection in conns:
             # check the recipient key
