@@ -21,7 +21,7 @@ TEST_ENDPOINT = "http://localhost"
 TEST_IMAGE_URL = "http://aries.ca/images/sample.png"
 
 
-class TestIntroductionRoutes(AsyncTestCase):
+class TestIntroductionService(AsyncTestCase):
     def setUp(self):
         self.profile = InMemoryProfile.test_profile()
         self.context = RequestContext(self.profile)

@@ -3,8 +3,8 @@
 import logging
 
 from ....connections.models.conn_record import ConnRecord
-from ....config.injection_context import InjectionContext
 from ....core.error import BaseError
+from ....core.profile import ProfileSession
 from ....ledger.base import BaseLedger
 from ....wallet.util import did_key_to_naked, naked_to_did_key
 
@@ -32,26 +32,26 @@ class OutOfBandManagerNotImplementedError(BaseError):
 class OutOfBandManager:
     """Class for managing out of band messages."""
 
-    def __init__(self, context: InjectionContext):
+    def __init__(self, session: ProfileSession):
         """
         Initialize a OutOfBandManager.
 
         Args:
-            context: The context for this out of band manager
+            session: The profile session for this out of band manager
         """
-        self._context = context
+        self._session = session
         self._logger = logging.getLogger(__name__)
 
     @property
-    def context(self) -> InjectionContext:
+    def session(self) -> ProfileSession:
         """
-        Accessor for the current injection context.
+        Accessor for the current profile session.
 
         Returns:
-            The injection context for this connection manager
+            The profile session for this connection manager
 
         """
-        return self._context
+        return self._session
 
     async def create_invitation(
         self,
@@ -83,7 +83,7 @@ class OutOfBandManager:
 
         """
 
-        connection_mgr = ConnectionManager(self.context)
+        connection_mgr = ConnectionManager(self._session)
         (connection, connection_invitation) = await connection_mgr.create_invitation(
             my_label=my_label,
             my_endpoint=my_endpoint,
@@ -91,12 +91,11 @@ class OutOfBandManager:
             public=use_public_did,
             multi_use=multi_use,
         )
-        # wallet: BaseWallet = self.context.inject(BaseWallet)
 
         if not my_label:
-            my_label = self.context.settings.get("default_label")
+            my_label = self._session.settings.get("default_label")
         # if not my_endpoint:
-        #     my_endpoint = self.context.settings.get("default_endpoint")
+        #     my_endpoint = self._session.settings.get("default_endpoint")
 
         message_attachments = []
         if attachments:
@@ -105,7 +104,7 @@ class OutOfBandManager:
                 if attachment_type == "credential-offer":
                     instance_id = attachment["id"]
                     model = await V10CredentialExchange.retrieve_by_id(
-                        self.context, instance_id
+                        self._session, instance_id
                     )
                     # Wrap as attachment decorators
                     message_attachments.append(
@@ -114,7 +113,7 @@ class OutOfBandManager:
                 elif attachment_type == "present-proof":
                     instance_id = attachment["id"]
                     model = await V10PresentationExchange.retrieve_by_id(
-                        self.context, instance_id
+                        self._session, instance_id
                     )
                     # Wrap as attachment decorators
                     message_attachments.append(
@@ -173,14 +172,14 @@ class OutOfBandManager:
             invitation=invitation_message.serialize(),
         )
 
-        await invitation_model.save(self.context, reason="Created new invitation")
+        await invitation_model.save(self._session, reason="Created new invitation")
 
         return invitation_model
 
     async def receive_invitation(self, invitation: InvitationMessage) -> ConnRecord:
         """Receive an out of band invitation message."""
 
-        ledger: BaseLedger = self.context.inject(BaseLedger)
+        ledger: BaseLedger = self._session.inject(BaseLedger)
 
         # New message format
         invitation_message = InvitationMessage.deserialize(invitation)
@@ -248,7 +247,7 @@ class OutOfBandManager:
                 }
             )
 
-            connection_mgr = ConnectionManager(self.context)
+            connection_mgr = ConnectionManager(self._session)
             connection = await connection_mgr.receive_invitation(
                 connection_invitation, auto_accept=True
             )
