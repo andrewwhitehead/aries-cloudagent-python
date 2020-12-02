@@ -64,7 +64,8 @@ async def invitation_create(request: web.BaseRequest):
     include_handshake = body.get("include_handshake")
     use_public_did = body.get("use_public_did")
     multi_use = json.loads(request.query.get("multi_use", "false"))
-    oob_mgr = OutOfBandManager(context)
+    session = await context.session()
+    oob_mgr = OutOfBandManager(session)
 
     try:
         invitation = await oob_mgr.create_invitation(
@@ -98,7 +99,8 @@ async def invitation_receive(request: web.BaseRequest):
     context: AdminRequestContext = request["context"]
     body = await request.json()
 
-    oob_mgr = OutOfBandManager(context)
+    session = await context.session()
+    oob_mgr = OutOfBandManager(session)
 
     invitation = await oob_mgr.receive_invitation(invitation=body)
 
